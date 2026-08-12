@@ -2,26 +2,30 @@ const STORE_KEY = 'allaboard_v3';
 
 // Initialize Store
 function getStore() {
+    let parsed = null;
     try {
         const store = localStorage.getItem(STORE_KEY);
         if (store) {
-            const parsed = JSON.parse(store);
-            if (parsed && typeof parsed === 'object') {
-                return parsed;
-            }
+            parsed = JSON.parse(store);
         }
     } catch(e) {}
     
-    return {
-        role: null,
-        name: null,
-        contractSigned: false,
-        skillsRetried: false,
-        documents: [
-            { name: 'Identificacion_Oficial.pdf', status: 'Cargado con éxito', color: 'green' },
-            { name: 'Comprobante_de_Domicilio.pdf', status: 'Cargado con éxito', color: 'green' }
-        ]
-    };
+    if (!parsed || typeof parsed !== 'object') {
+        parsed = {
+            role: null,
+            name: null,
+            contractSigned: false,
+            skillsRetried: false,
+            documents: [
+                { name: 'Identificacion_Oficial.pdf', status: 'Cargado con éxito', color: 'green' },
+                { name: 'Comprobante_de_Domicilio.pdf', status: 'Cargado con éxito', color: 'green' }
+            ]
+        };
+    }
+    if (!parsed.enrolledCourses) {
+        parsed.enrolledCourses = ['iso9001', 'prevencion', 'politicas'];
+    }
+    return parsed;
 }
 
 function saveStore(data) {
@@ -130,7 +134,7 @@ if (mainContent && sidebar) {
     document.getElementById('userNameDisplay').textContent = store.name;
     document.getElementById('userRoleDisplay').textContent = store.role;
     
-    if (store.role === 'ADMINISTRADOR' || store.role === 'JEFE') {
+    if (store.role) {
         document.getElementById('roleBadgeContainer').innerHTML = `<span class="role-badge">${store.role}</span>`;
     }
 
@@ -165,7 +169,7 @@ if (mainContent && sidebar) {
     const notifPanel = document.createElement('div');
     notifPanel.id = 'notifPanel';
     notifPanel.className = 'dropdown-menu hidden';
-    notifPanel.style.cssText = 'right:160px; min-width:320px; max-height:400px; overflow-y:auto;';
+    notifPanel.style.cssText = 'right:70px; min-width:320px; max-height:400px; overflow-y:auto;';
     notifPanel.innerHTML = `
         <div class="dropdown-header" style="display:flex;justify-content:space-between;align-items:center;">
             <strong>Notificaciones</strong>
@@ -231,6 +235,11 @@ if (mainContent && sidebar) {
             document.querySelectorAll('.main-nav a').forEach(l => l.classList.remove('active'));
             link.classList.add('active');
             currentNav = link.getAttribute('data-nav');
+            if (store.role === 'EMPLEADO') {
+                if (currentNav === 'inicio') currentSidebarView = 'emp_resumen';
+                else if (currentNav === 'tramites') currentSidebarView = 'emp_tramites_resumen';
+                else if (currentNav === 'capacitaciones') currentSidebarView = 'emp_cap_catalogo';
+            }
             renderSidebar();
         });
     });
@@ -246,7 +255,9 @@ if (mainContent && sidebar) {
             const a = document.createElement('a');
             a.href = '#';
             a.innerHTML = `<i data-lucide="${icon}"></i> ${title}`;
-            if (currentSidebarView === viewId) a.classList.add('active');
+            if (currentSidebarView === viewId || (viewId === 'emp_cursos' && (currentSidebarView.startsWith('emp_curso') || currentSidebarView.startsWith('emp_visor')))) {
+                a.classList.add('active');
+            }
             a.addEventListener('click', (e) => {
                 e.preventDefault();
                 currentSidebarView = viewId;
@@ -263,19 +274,21 @@ if (mainContent && sidebar) {
                 addSidebarItem('Resumen', 'layout-dashboard', 'emp_resumen');
                 addSidebarItem('Progreso', 'trending-up', 'emp_progreso');
                 addSidebarItem('Pendientes', 'list-todo', 'emp_pendientes');
-                // Auto-navigate to Resumen immediately when Inicio is clicked
-                if (!currentSidebarView || !['emp_resumen','emp_progreso','emp_pendientes'].includes(currentSidebarView)) {
+                // Auto-navigate to Resumen immediately when Inicio is clicked unless on perfil_usuario
+                if (!currentSidebarView || (!['emp_resumen','emp_progreso','emp_pendientes','perfil_usuario'].includes(currentSidebarView))) {
                     currentSidebarView = 'emp_resumen';
                 }
             } else if (currentNav === 'tramites') {
-                addSidebarItem('Resumen', 'file-text', 'emp_tramites_resumen');
+                addSidebarItem('Trámites', 'file-text', 'emp_tramites_resumen');
                 addSidebarItem('Firmas', 'pen-tool', 'emp_tramites_firmas');
                 addSidebarItem('Documentos', 'folder', 'emp_tramites_documentos');
-                if (!currentSidebarView.startsWith('emp_tramites')) currentSidebarView = 'emp_tramites_resumen';
+                if (!currentSidebarView.startsWith('emp_tramites') && currentSidebarView !== 'perfil_usuario') currentSidebarView = 'emp_tramites_resumen';
             } else if (currentNav === 'capacitaciones') {
                 addSidebarItem('Catálogo', 'grid', 'emp_cap_catalogo');
                 addSidebarItem('Tus Cursos', 'book-open', 'emp_cursos');
-                if (!currentSidebarView.startsWith('emp_cap') && currentSidebarView !== 'emp_cursos') currentSidebarView = 'emp_cap_catalogo';
+                if (!currentSidebarView.startsWith('emp_cap') && !currentSidebarView.startsWith('emp_curso') && !currentSidebarView.startsWith('emp_visor') && currentSidebarView !== 'emp_cursos' && currentSidebarView !== 'perfil_usuario') {
+                    currentSidebarView = 'emp_cap_catalogo';
+                }
             }
         } 
         else if (store.role === 'ADMINISTRADOR') {
@@ -333,12 +346,14 @@ if (mainContent && sidebar) {
     window.navigateTo = (viewId) => {
         currentSidebarView = viewId;
         // Also sync the top navbar active state for employee nav changes
-        if (viewId.startsWith('emp_tramites')) {
+        if (viewId === 'perfil_usuario') {
+            document.querySelectorAll('.main-nav a').forEach(l => l.classList.remove('active'));
+        } else if (viewId.startsWith('emp_tramites')) {
             currentNav = 'tramites';
             document.querySelectorAll('.main-nav a').forEach(l => l.classList.remove('active'));
             const t = document.querySelector('[data-nav="tramites"]');
             if (t) t.classList.add('active');
-        } else if (viewId.startsWith('emp_cap') || viewId === 'emp_cursos') {
+        } else if (viewId.startsWith('emp_cap') || viewId.startsWith('emp_curso') || viewId.startsWith('emp_visor') || viewId === 'emp_cursos') {
             currentNav = 'capacitaciones';
             document.querySelectorAll('.main-nav a').forEach(l => l.classList.remove('active'));
             const c = document.querySelector('[data-nav="capacitaciones"]');
@@ -352,7 +367,28 @@ if (mainContent && sidebar) {
         renderSidebar();
     };
 
-    // Expose openModal/closeModal globally too (needed by inline handlers)
+    // ── GLOBAL ENROLLMENT HELPER ─────────────────────────────
+    window.enrollCourse = (courseId) => {
+        const s = getStore();
+        if (!s.enrolledCourses) s.enrolledCourses = ['iso9001', 'prevencion', 'politicas'];
+        if (!s.enrolledCourses.includes(courseId)) {
+            s.enrolledCourses.push(courseId);
+            saveStore(s);
+        }
+        openModal(`
+            <div style="text-align:center; padding:24px;">
+                <div style="width:60px;height:60px;background:#dcfce7;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#166534;margin-bottom:16px;margin:0 auto 16px;">
+                    <i data-lucide="check-circle" style="width:36px;height:36px;"></i>
+                </div>
+                <h2 style="font-size:1.3rem; color:var(--color-primary); margin-bottom:8px;">¡Curso añadido con éxito!</h2>
+                <p style="color:var(--color-muted); font-size:0.9rem; margin-bottom:20px;">El curso <strong>Liderazgo y Gestión de Equipos</strong> ha sido agregado a Tus Cursos.</p>
+                <div style="display:flex; justify-content:center; gap:12px;">
+                    <button class="btn btn-outline" onclick="closeModal(); navigateTo('emp_cursos');">Ver Tus Cursos</button>
+                    <button class="btn btn-primary" onclick="closeModal(); navigateTo('emp_visor_liderazgo');">Comenzar Ahora</button>
+                </div>
+            </div>
+        `);
+    };
     window.openModal  = (html) => {
         document.getElementById('modalContent').innerHTML = html;
         document.getElementById('modalContainer').classList.remove('hidden');
@@ -498,14 +534,6 @@ if (mainContent && sidebar) {
                                 <li>Introducción a ISO 9001<br><small class="text-muted">Tiempo estimado: 50 minutos</small></li>
                             </ul>
                         </div>
-                        <div class="card">
-                            <h3 class="card-title" style="margin-bottom:16px;">Recursos rápidos</h3>
-                            <div style="display:flex; flex-direction:column; gap:12px;">
-                                <a href="#" onclick="alert('Abriendo Manual del empleado...'); return false;" style="color:var(--color-secondary2); display:flex; align-items:center; gap:8px;"><i data-lucide="book"></i> Manual del empleado</a>
-                                <a href="#" onclick="alert('Abriendo Organigrama corporativo...'); return false;" style="color:var(--color-secondary2); display:flex; align-items:center; gap:8px;"><i data-lucide="users"></i> Organigrama</a>
-                                <a href="#" onclick="alert('Abriendo Directorio de contactos...'); return false;" style="color:var(--color-secondary2); display:flex; align-items:center; gap:8px;"><i data-lucide="contact"></i> Directorio</a>
-                            </div>
-                        </div>
                     </div>
                 </div>
             `;
@@ -599,10 +627,11 @@ if (mainContent && sidebar) {
                         <div class="task-title">Código de conducta</div>
                         <div class="task-meta"><span>Viernes</span> <span>5 minutos</span></div>
                     </div>
-                    <div class="task-card">
+                    <div class="task-card card-clickable" onclick="navigateTo('perfil_usuario')" title="Ver perfil">
                         <div class="task-header"><i data-lucide="user"></i> Documentación</div>
                         <div class="task-title">Completar perfil</div>
                         <div class="task-meta"><span>Indefinido</span> <span>5 minutos</span></div>
+                        <div style="margin-top:10px;"><span style="font-size:0.78rem; color:var(--color-secondary2); font-weight:500;">Ver perfil →</span></div>
                     </div>
                 </div>
             `;
@@ -616,42 +645,116 @@ if (mainContent && sidebar) {
             };
         }
         else if (currentSidebarView === 'emp_cursos') {
+            const activeStore = getStore();
+            const enrolled = activeStore.enrolledCourses || ['iso9001', 'prevencion', 'politicas'];
+            
             mainContent.innerHTML = `
                 <div class="page-header">
                     <h1 class="page-title text-blue">Tus Cursos</h1>
                     <p class="page-subtitle">Selecciona un curso para ver el temario y comenzar a aprender.</p>
                 </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:stretch;">
+                <div class="course-grid">
                     <!-- ISO 9001 Card -->
-                    <div style="border-radius:12px; overflow:hidden; display:flex; flex-direction:column; cursor:pointer; border:1px solid #bfdbfe; box-shadow:0 2px 8px rgba(0,0,0,0.07); transition:transform 0.2s;" onclick="navigateTo('emp_curso_iso9001')" onmouseover="this.style.transform='translateY(-4px)'" onmouseout="this.style.transform='translateY(0)'">
-                        <div style="background:linear-gradient(135deg, #1e3a8a, #3b82f6); padding:28px 24px; color:white;">
-                            <i data-lucide="shield-check" style="width:36px; height:36px; margin-bottom:14px; display:block;"></i>
-                            <h3 style="font-size:1.15rem; margin-bottom:6px; color:#ffffff; font-weight:700;">Introducción a ISO 9001</h3>
-                            <p style="font-size:0.85rem; color:rgba(255,255,255,0.88); margin:0;">Sistema de Gestión de Calidad</p>
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_iso9001')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="shield-check"></i></div>
+                                <span class="fancy-card-badge">Obligatorio</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Introducción a ISO 9001</h3>
+                                <p class="fancy-card-subtitle">Sistema de Gestión de Calidad</p>
+                            </div>
                         </div>
-                        <div style="padding:20px; flex:1; display:flex; flex-direction:column; background:#fff;">
-                            <p class="text-muted" style="font-size:0.9rem; margin-bottom:16px; flex:1;">Comprende los fundamentos de la norma ISO 9001 y su aplicación en la empresa.</p>
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span class="badge badge-blue">4 Módulos</span>
-                                <span style="font-weight:600; color:var(--primary-blue); font-size:0.9rem;">Ver temario &rarr;</span>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Comprende los fundamentos de la norma ISO 9001 y su aplicación práctica en All Aboard.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 50 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#1e3a8a;">Ver temario <i data-lucide="arrow-right"></i></span>
                             </div>
                         </div>
                     </div>
+
                     <!-- Prevención Card -->
-                    <div style="border-radius:12px; overflow:hidden; display:flex; flex-direction:column; cursor:pointer; border:1px solid #99f6e4; box-shadow:0 2px 8px rgba(0,0,0,0.07); transition:transform 0.2s;" onclick="navigateTo('emp_curso_prevencion')" onmouseover="this.style.transform='translateY(-4px)'" onmouseout="this.style.transform='translateY(0)'">
-                        <div style="background:linear-gradient(135deg, #0f766e, #14b8a6); padding:28px 24px; color:white;">
-                            <i data-lucide="hard-hat" style="width:36px; height:36px; margin-bottom:14px; display:block;"></i>
-                            <h3 style="font-size:1.15rem; margin-bottom:6px; color:#ffffff; font-weight:700;">Prevención de Riesgos</h3>
-                            <p style="font-size:0.85rem; color:rgba(255,255,255,0.88); margin:0;">Seguridad Laboral Básica</p>
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_prevencion')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="hard-hat"></i></div>
+                                <span class="fancy-card-badge">Seguridad</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Prevención de Riesgos</h3>
+                                <p class="fancy-card-subtitle">Seguridad Laboral Básica</p>
+                            </div>
                         </div>
-                        <div style="padding:20px; flex:1; display:flex; flex-direction:column; background:#fff;">
-                            <p class="text-muted" style="font-size:0.9rem; margin-bottom:16px; flex:1;">Conoce los protocolos de seguridad y prevención de accidentes en tu área de trabajo.</p>
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span class="badge" style="background:#ccfbf1; color:#0f766e;">4 Módulos</span>
-                                <span style="font-weight:600; color:#0f766e; font-size:0.9rem;">Ver temario &rarr;</span>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Conoce los protocolos de seguridad y prevención de accidentes en tu área de trabajo.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 40 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#0f766e;">Ver temario <i data-lucide="arrow-right"></i></span>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Políticas Card -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_politicas')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #581c87 0%, #9333ea 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="scale"></i></div>
+                                <span class="fancy-card-badge">Normativa</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Políticas y Ética Corporativa</h3>
+                                <p class="fancy-card-subtitle">Código de Conducta y Valores</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Conoce los principios éticos, normas de confidencialidad e inclusión de la empresa.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 30 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#6b21a8;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${enrolled.includes('liderazgo') ? `
+                    <!-- Liderazgo Card (Inscrito) -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_liderazgo')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #312e81 0%, #6366f1 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="users"></i></div>
+                                <span class="fancy-card-badge">Liderazgo</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Liderazgo y Gestión de Equipos</h3>
+                                <p class="fancy-card-subtitle">Desarrollo de Habilidades Directivas</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Desarrolla competencias para guiar equipos, resolver conflictos y gestionar talento.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 60 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#312e81;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
             `;
             lucide.createIcons();
@@ -1370,6 +1473,323 @@ if (mainContent && sidebar) {
             
             return;
         }
+        else if (currentSidebarView === 'emp_curso_politicas') {
+            mainContent.innerHTML = `
+                <div class="page-header" style="display:flex; align-items:center; gap:16px;">
+                    <button class="btn btn-outline" style="padding:8px;" onclick="navigateTo('emp_cursos')"><i data-lucide="arrow-left"></i> Volver</button>
+                    <div>
+                        <h1 class="page-title" style="color:#6b21a8;">Políticas y Ética Corporativa</h1>
+                        <p class="page-subtitle">Código de Conducta y Valores de All Aboard</p>
+                    </div>
+                </div>
+                <div class="card" style="margin-bottom:24px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 class="card-title">Descripción del curso</h3>
+                        <button class="btn" style="background:#6b21a8; color:white; border:none;" onclick="navigateTo('emp_visor_politicas')">Comenzar Curso</button>
+                    </div>
+                    <p class="text-muted">Este curso abarca los principios éticos, políticas de confidencialidad, inclusión, anticorrupción y normas de conducta profesional que guían a todos los colaboradores en All Aboard. Aprenderás a resolver dilemas éticos y a mantener un entorno de trabajo íntegro y profesional.</p>
+                </div>
+                <div class="card">
+                    <h3 class="card-title" style="margin-bottom:16px;">Módulos del curso</h3>
+                    <div class="module-list">
+                        <div class="module-item open" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 1: Valores Organizacionales y Código de Conducta <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Visión, misión y valores fundamentales de All Aboard</li>
+                                    <li>Respeto, inclusión y diversidad en el lugar de trabajo</li>
+                                    <li>Tolerancia cero al acoso, hostigamiento y discriminación</li>
+                                    <li>Cultura de colaboración y ambiente laboral saludable</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 2: Confidencialidad y Protección de Datos <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Manejo responsable de información confidencial y secretos comerciales</li>
+                                    <li>Protección de datos personales de clientes y colaboradores</li>
+                                    <li>Uso adecuado de dispositivos y activos tecnológicos de la empresa</li>
+                                    <li>Seguridad en redes y buenas prácticas digitales</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 3: Anti-Corrupción y Conflictos de Interés <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Identificación y prevención de conflictos de interés</li>
+                                    <li>Política de regalos, hospitalidad y atenciones de negocios</li>
+                                    <li>Prevención de soborno, fraude y blanqueo de capitales</li>
+                                    <li>Canal ético y denuncias anónimas sin represalias</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 4: Cumplimiento Normativo y Compromiso Ético <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Responsabilidad individual y toma de decisiones éticas</li>
+                                    <li>Consecuencias del incumplimiento del código ético</li>
+                                    <li>Evaluación de conocimientos y declaración de compromiso</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+            return;
+        }
+        else if (currentSidebarView === 'emp_visor_politicas') {
+            mainContent.innerHTML = `
+                <div style="display:flex; height:calc(100vh - 70px); margin:-24px; font-family: 'Inter', sans-serif;">
+                    <!-- Sidebar -->
+                    <div style="width:280px; background:var(--color-bg); border-right:1px solid var(--border-color); overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:16px;">
+                        <button class="btn btn-outline" style="width:100%;" onclick="navigateTo('emp_curso_politicas')"><i data-lucide="arrow-left"></i> Salir del curso</button>
+                        <h3 style="font-size:1.1rem; color:#6b21a8; font-weight:700;">Políticas y Ética Corporativa</h3>
+                        
+                        <div class="visor-nav" style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+                            <button id="nav-pol-1" class="btn" style="text-align:left; justify-content:flex-start; font-weight:500; background:#6b21a8; color:white; border:none;" onclick="loadContentPoliticas(1)">Módulo 1: Valores</button>
+                            <button id="nav-pol-2" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentPoliticas(2)">Módulo 2: Confidencialidad</button>
+                            <button id="nav-pol-3" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentPoliticas(3)">Módulo 3: Anti-Corrupción</button>
+                            <button id="nav-pol-4" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentPoliticas(4)">Módulo 4: Cumplimiento</button>
+                            <button id="nav-pol-5" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:600; color:#6b21a8; margin-top:16px;" onclick="loadContentPoliticas(5)"><i data-lucide="award"></i> Examen Final</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Content Area -->
+                    <div style="flex:1; padding:40px 60px; overflow-y:auto; background:#fff;" id="visorContent">
+                        <!-- Content injected via JS -->
+                    </div>
+                </div>
+            `;
+
+            window.loadContentPoliticas = (modNum) => {
+                for (let i = 1; i <= 5; i++) {
+                    const btn = document.getElementById('nav-pol-' + i);
+                    if (btn) {
+                        if (i === modNum) {
+                            btn.className = 'btn';
+                            btn.style.cssText = 'text-align:left; justify-content:flex-start; font-weight:500; background:#6b21a8; color:white; border:none;';
+                        } else {
+                            btn.className = 'btn btn-outline';
+                            btn.style.cssText = 'text-align:left; justify-content:flex-start; border:none; font-weight:500; background:none; color:var(--color-text);';
+                        }
+                    }
+                }
+
+                const polData = {
+                    1: `
+                        <h2 style="font-size:1.8rem; color:#6b21a8; margin-bottom:20px;">Módulo 1: Valores Organizacionales y Código de Conducta</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Principios Éticos de All Aboard</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">En All Aboard, nuestro compromiso con la integridad guía cada acción y decisión. Promovemos un ambiente de respeto mutuo, transparencia e igualdad de oportunidades.</p>
+                        
+                        <div style="background:#faf5ff; border-left:4px solid #6b21a8; border-radius:6px; padding:14px 18px; margin-bottom:24px;">
+                            <strong style="color:#6b21a8;">💡 Pilar Ético</strong>
+                            <p style="margin:6px 0 0; color:#6b21a8; font-size:0.95rem;">El respeto y la honestidad son fundamentales para mantener la confianza de nuestros clientes y colaboradores.</p>
+                        </div>
+                    `,
+                    2: `
+                        <h2 style="font-size:1.8rem; color:#6b21a8; margin-bottom:20px;">Módulo 2: Confidencialidad y Protección de Datos</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Protección de la Información</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Toda la información estratégica, de clientes y colaboradores debe resguardarse bajo estrictos estándares de confidencialidad.</p>
+                    `,
+                    3: `
+                        <h2 style="font-size:1.8rem; color:#6b21a8; margin-bottom:20px;">Módulo 3: Anti-Corrupción y Conflictos de Interés</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Transparencia y Cero Sobornos</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Rechazamos firmemente cualquier práctica de soborno, corrupción o aprovechamiento indebido de funciones.</p>
+                    `,
+                    4: `
+                        <h2 style="font-size:1.8rem; color:#6b21a8; margin-bottom:20px;">Módulo 4: Cumplimiento y Normativa Interna</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Compromiso Continuo</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Todos los colaboradores deben revisar y renovar periódicamente su compromiso con el código ético.</p>
+                    `,
+                    5: `
+                        <h2 style="font-size:1.8rem; color:#6b21a8; margin-bottom:20px;">Examen Final: Políticas y Ética Corporativa</h2>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Responde las preguntas para certificar tu conocimiento en ética corporativa.</p>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:24px;">
+                            <p style="font-weight:600; margin-bottom:12px;">1. ¿Cuál es el canal adecuado si detectas un conflicto de interés o conducta antiética?</p>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, false)">a) Ignorarlo</button>
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, true)">b) Reportarlo a través del Canal Ético o RRHH</button>
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, false)">c) Comentarlo en redes sociales</button>
+                            </div>
+                        </div>
+                    `
+                };
+                document.getElementById('visorContent').innerHTML = polData[modNum] || polData[1];
+                lucide.createIcons();
+            };
+
+            setTimeout(() => {
+                window.loadContentPoliticas(1);
+            }, 0);
+            
+            return;
+        }
+        else if (currentSidebarView === 'emp_curso_liderazgo') {
+            const activeStore = getStore();
+            const isEnrolled = activeStore.enrolledCourses && activeStore.enrolledCourses.includes('liderazgo');
+            
+            mainContent.innerHTML = `
+                <div class="page-header" style="display:flex; align-items:center; gap:16px;">
+                    <button class="btn btn-outline" style="padding:8px;" onclick="navigateTo('emp_cursos')"><i data-lucide="arrow-left"></i> Volver</button>
+                    <div>
+                        <h1 class="page-title" style="color:#312e81;">Liderazgo y Gestión de Equipos</h1>
+                        <p class="page-subtitle">Desarrollo de Habilidades Directivas y Trabajo en Equipo</p>
+                    </div>
+                </div>
+                <div class="card" style="margin-bottom:24px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h3 class="card-title">Descripción del curso</h3>
+                        ${isEnrolled ? `
+                            <button class="btn" style="background:linear-gradient(135deg, #312e81, #6366f1); color:white; border:none; display:inline-flex; align-items:center; gap:8px; font-weight:600; padding:10px 20px; border-radius:8px; cursor:pointer;" onclick="navigateTo('emp_visor_liderazgo')"><i data-lucide="play-circle"></i> Comenzar Curso</button>
+                        ` : `
+                            <button id="btnEnrollLiderazgo" class="btn" style="background:linear-gradient(135deg, #4338ca, #6366f1); color:white; border:none; display:inline-flex; align-items:center; gap:8px; font-weight:600; padding:10px 20px; border-radius:8px; cursor:pointer;" onclick="enrollCourse('liderazgo')"><i data-lucide="plus-circle"></i> Añadir curso</button>
+                        `}
+                    </div>
+                    <p class="text-muted" style="line-height:1.7;">Este curso desarrollará tus competencias clave para guiar equipos de alto rendimiento, fomentar la comunicación asertiva, gestionar conflictos con diplomacia y liderar proyectos estratégicos en All Aboard.</p>
+                </div>
+                <div class="card">
+                    <h3 class="card-title" style="margin-bottom:16px;">Módulos del curso</h3>
+                    <div class="module-list">
+                        <div class="module-item open" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 1: Fundamentos de Liderazgo Consciente <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Estilos de liderazgo y autoevaluación directiva</li>
+                                    <li>Comunicación efectiva y escucha activa</li>
+                                    <li>Inteligencia emocional aplicada a la gestión de personas</li>
+                                    <li>Generación de confianza y empatía en el trabajo</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 2: Construcción y Motivación de Equipos <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Fases de desarrollo de un equipo de trabajo</li>
+                                    <li>Delegación efectiva y empoderamiento de colaboradores</li>
+                                    <li>Estrategias de motivación y reconocimiento del talento</li>
+                                    <li>Gestión de la diversidad y trabajo colaborativo</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 3: Gestión de Conflictos y Negociación <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Identificación temprana de desacuerdos y fricciones</li>
+                                    <li>Técnicas de mediación y resolución pacífica de problemas</li>
+                                    <li>Estrategias de negociación ganar-ganar</li>
+                                    <li>Manejo de conversaciones difíciles y retroalimentación constructiva</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="module-item" onclick="this.classList.toggle('open')">
+                            <div class="module-header">Módulo 4: Dirección Estratégica y Resultados <i data-lucide="chevron-down"></i></div>
+                            <div class="module-content">
+                                <ul class="bullet-list">
+                                    <li>Alineación de objetivos de equipo con las metas de la empresa</li>
+                                    <li>Gestión del tiempo, prioridades y toma de decisiones bajo presión</li>
+                                    <li>Evaluación de desempeño y cultura de mejora continua</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+            return;
+        }
+        else if (currentSidebarView === 'emp_visor_liderazgo') {
+            mainContent.innerHTML = `
+                <div style="display:flex; height:calc(100vh - 70px); margin:-24px; font-family: 'Inter', sans-serif;">
+                    <!-- Sidebar -->
+                    <div style="width:280px; background:var(--color-bg); border-right:1px solid var(--border-color); overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:16px;">
+                        <button class="btn btn-outline" style="width:100%;" onclick="navigateTo('emp_curso_liderazgo')"><i data-lucide="arrow-left"></i> Salir del curso</button>
+                        <h3 style="font-size:1.1rem; color:#312e81; font-weight:700;">Liderazgo y Gestión de Equipos</h3>
+                        
+                        <div class="visor-nav" style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+                            <button id="nav-lid-1" class="btn" style="text-align:left; justify-content:flex-start; font-weight:500; background:#312e81; color:white; border:none;" onclick="loadContentLiderazgo(1)">Módulo 1: Fundamentos</button>
+                            <button id="nav-lid-2" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentLiderazgo(2)">Módulo 2: Motivación</button>
+                            <button id="nav-lid-3" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentLiderazgo(3)">Módulo 3: Conflictos</button>
+                            <button id="nav-lid-4" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:500;" onclick="loadContentLiderazgo(4)">Módulo 4: Dirección</button>
+                            <button id="nav-lid-5" class="btn btn-outline" style="text-align:left; justify-content:flex-start; border:none; font-weight:600; color:#312e81; margin-top:16px;" onclick="loadContentLiderazgo(5)"><i data-lucide="award"></i> Examen Final</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Content Area -->
+                    <div style="flex:1; padding:40px 60px; overflow-y:auto; background:#fff;" id="visorContent">
+                        <!-- Content injected via JS -->
+                    </div>
+                </div>
+            `;
+
+            window.loadContentLiderazgo = (modNum) => {
+                for (let i = 1; i <= 5; i++) {
+                    const btn = document.getElementById('nav-lid-' + i);
+                    if (btn) {
+                        if (i === modNum) {
+                            btn.className = 'btn';
+                            btn.style.cssText = 'text-align:left; justify-content:flex-start; font-weight:500; background:#312e81; color:white; border:none;';
+                        } else {
+                            btn.className = 'btn btn-outline';
+                            btn.style.cssText = 'text-align:left; justify-content:flex-start; border:none; font-weight:500; background:none; color:var(--color-text);';
+                        }
+                    }
+                }
+
+                const lidData = {
+                    1: `
+                        <h2 style="font-size:1.8rem; color:#312e81; margin-bottom:20px;">Módulo 1: Fundamentos de Liderazgo Consciente</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Estilos de Liderazgo</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Un gran líder adapta su estilo según las necesidades de su equipo y los retos organizacionales. La empatía y el ejemplo son los motores principales de la influencia positiva.</p>
+                        
+                        <div style="background:#eef2ff; border-left:4px solid #312e81; border-radius:6px; padding:14px 18px; margin-bottom:24px;">
+                            <strong style="color:#312e81;">💡 Frase Clave</strong>
+                            <p style="margin:6px 0 0; color:#312e81; font-size:0.95rem;">Un líder no crea seguidores, crea más líderes.</p>
+                        </div>
+                    `,
+                    2: `
+                        <h2 style="font-size:1.8rem; color:#312e81; margin-bottom:20px;">Módulo 2: Construcción y Motivación de Equipos</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Delegación y Empoderamiento</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Delegar no es simplemente asignar tareas, es otorgar la confianza y los recursos necesarios para que cada integrante asuma la responsabilidad de sus resultados.</p>
+                    `,
+                    3: `
+                        <h2 style="font-size:1.8rem; color:#312e81; margin-bottom:20px;">Módulo 3: Gestión de Conflictos y Negociación</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Diálogo Constructivo</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Los conflictos son oportunidades para innovar y mejorar procesos cuando se abordan con apertura y búsqueda de consensos.</p>
+                    `,
+                    4: `
+                        <h2 style="font-size:1.8rem; color:#312e81; margin-bottom:20px;">Módulo 4: Dirección Estratégica y Resultados</h2>
+                        <h3 style="font-size:1.2rem; margin-top:24px; margin-bottom:12px;">Visión de Futuro</h3>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Conectar los objetivos diarios de cada persona con la visión estratégica de All Aboard es la clave para un desempeño sostenido.</p>
+                    `,
+                    5: `
+                        <h2 style="font-size:1.8rem; color:#312e81; margin-bottom:20px;">Examen Final: Liderazgo y Gestión de Equipos</h2>
+                        <p style="margin-bottom:16px; line-height:1.6; color:var(--color-text);">Responde las preguntas para completar el curso de liderazgo.</p>
+                        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:24px;">
+                            <p style="font-weight:600; margin-bottom:12px;">1. ¿Cuál es el beneficio principal de delegar tareas eficazmente?</p>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, false)">a) Evitar trabajar</button>
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, true)">b) Empoderar al equipo y desarrollar talento</button>
+                                <button class="btn btn-outline" style="justify-content:flex-start; text-align:left;" onclick="checkAnswer(this, false)">c) Traspasar responsabilidades sin supervisión</button>
+                            </div>
+                        </div>
+                    `
+                };
+                document.getElementById('visorContent').innerHTML = lidData[modNum] || lidData[1];
+                lucide.createIcons();
+            };
+
+            setTimeout(() => {
+                window.loadContentLiderazgo(1);
+            }, 0);
+            
+            return;
+        }
         else if (currentSidebarView === 'emp_tramites_resumen') {
             mainContent.innerHTML = `
                 <div class="page-header"><h1 class="page-title">Resumen de Trámites</h1></div>
@@ -1392,31 +1812,32 @@ if (mainContent && sidebar) {
                     <div class="card text-center">
                         <h3 class="card-title" style="justify-content:center;">Estado de Validación</h3>
                         <div style="display:flex; flex-direction:column; align-items:center; gap:20px; padding-top:8px;">
-                            <svg viewBox="0 0 36 36" style="width:130px; height:130px;">
-                                ${(() => {
-                                        const total = 4;
-                                        let completado = store.contractSigned ? 2 : 1;
-                                        let revision = store.contractSigned ? 1 : 2;
-                                        let pendiente = 1;
-                                        
-                                        const pctC = (completado / total) * 100;
-                                        const pctR = (revision / total) * 100;
-                                        const pctP = (pendiente / total) * 100;
-                                        
-                                        return `
-                                            <!-- Base (fondo gris) -->
-                                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#E2E2EE" stroke-width="4"/>
-                                            <!-- Completado -->
-                                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#059669" stroke-width="4"
-                                                stroke-dasharray="${pctC} 100" stroke-dashoffset="0" transform="rotate(-90 18 18)"/>
-                                            <!-- En revisión -->
-                                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#EA580C" stroke-width="4"
-                                                stroke-dasharray="${pctR} 100" stroke-dashoffset="-${pctC}" transform="rotate(-90 18 18)"/>
-                                            <!-- Pendiente -->
-                                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#D97706" stroke-width="4"
-                                                stroke-dasharray="${pctP} 100" stroke-dashoffset="-${pctC + pctR}" transform="rotate(-90 18 18)"/>
-                                        `;
-                                    })()}
+                            <div style="position:relative; width:130px; height:130px; margin:0 auto;">
+                                <svg viewBox="0 0 36 36" style="width:100%; height:100%;">
+                                    ${(() => {
+                                            const total = 4;
+                                            let completado = store.contractSigned ? 2 : 1;
+                                            let revision = store.contractSigned ? 1 : 2;
+                                            let pendiente = 1;
+                                            
+                                            const pctC = (completado / total) * 100;
+                                            const pctR = (revision / total) * 100;
+                                            const pctP = (pendiente / total) * 100;
+                                            
+                                            return `
+                                                <!-- Base (fondo gris) -->
+                                                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#E2E2EE" stroke-width="4"/>
+                                                <!-- Completado -->
+                                                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#059669" stroke-width="4"
+                                                    stroke-dasharray="${pctC} 100" stroke-dashoffset="0" transform="rotate(-90 18 18)"/>
+                                                <!-- En revisión -->
+                                                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#EA580C" stroke-width="4"
+                                                    stroke-dasharray="${pctR} 100" stroke-dashoffset="-${pctC}" transform="rotate(-90 18 18)"/>
+                                                <!-- Pendiente -->
+                                                <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#D97706" stroke-width="4"
+                                                    stroke-dasharray="${pctP} 100" stroke-dashoffset="-${pctC + pctR}" transform="rotate(-90 18 18)"/>
+                                            `;
+                                        })()}
                                 </svg>
                                 <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:1rem; color:var(--color-text); flex-direction:column; line-height:1.2;">
                                     <span style="font-size:1.3rem;">4</span>
@@ -1565,18 +1986,114 @@ Leído que fue el presente contrato, las partes lo firman de conformidad.
             }, 100);
         }
         else if (currentSidebarView === 'emp_cap_catalogo') {
+            const activeStore = getStore();
+            const enrolled = activeStore.enrolledCourses || ['iso9001', 'prevencion', 'politicas'];
+
             mainContent.innerHTML = `
-                <div class="page-header"><h1 class="page-title">Catálogo de Capacitaciones</h1></div>
-                <div class="grid-2col-even mb-4">
-                    <div class="card" style="background:#eff6ff; border:1px solid #93c5fd;">
-                        <h3 class="card-title" style="color:#1e3a8a;"><i data-lucide="shield"></i> Obligatorio</h3>
-                        <p style="font-size:1.2rem; font-weight:600;">Políticas y Éticas</p>
-                        <p class="text-muted">(Inscripción aprobada)</p>
+                <div class="page-header">
+                    <h1 class="page-title">Catálogo de Capacitaciones</h1>
+                    <p class="page-subtitle">Explora y accede a las capacitaciones disponibles en tu plan de desarrollo.</p>
+                </div>
+                
+                <div class="course-grid mb-4">
+                    <!-- ISO 9001 -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_iso9001')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="shield-check"></i></div>
+                                <span class="fancy-card-badge">Obligatorio</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Introducción a ISO 9001</h3>
+                                <p class="fancy-card-subtitle">Sistema de Gestión de Calidad</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Comprende los fundamentos de la norma ISO 9001 y su aplicación práctica en All Aboard.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 50 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#1e3a8a;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="card" style="background:#f5f3ff; border:1px solid #c4b5fd;">
-                        <h3 class="card-title" style="color:#4c1d95;"><i data-lucide="users"></i> Voluntario</h3>
-                        <p style="font-size:1.2rem; font-weight:600;">Liderazgo y Gestión de equipos</p>
-                        <p class="text-muted">(Inscripción en proceso)</p>
+
+                    <!-- Prevención de Riesgos -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_prevencion')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="hard-hat"></i></div>
+                                <span class="fancy-card-badge">Seguridad</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Prevención de Riesgos</h3>
+                                <p class="fancy-card-subtitle">Seguridad Laboral Básica</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Conoce los protocolos de seguridad y prevención de accidentes en tu área de trabajo.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 40 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#0f766e;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Políticas y Ética -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_politicas')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #581c87 0%, #9333ea 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="scale"></i></div>
+                                <span class="fancy-card-badge">Normativa</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Políticas y Ética Corporativa</h3>
+                                <p class="fancy-card-subtitle">Código de Conducta y Valores</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Conoce los principios éticos, normas de confidencialidad e inclusión de la empresa.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 30 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill status-enrolled">✓ Inscrito</span>
+                                <span class="fancy-card-action" style="color:#6b21a8;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Liderazgo y Gestión de Equipos -->
+                    <div class="fancy-course-card" onclick="navigateTo('emp_curso_liderazgo')">
+                        <div class="fancy-card-header" style="background:linear-gradient(135deg, #312e81 0%, #6366f1 100%);">
+                            <div class="header-top">
+                                <div class="icon-circle"><i data-lucide="users"></i></div>
+                                <span class="fancy-card-badge">${enrolled.includes('liderazgo') ? 'Voluntario' : 'Disponible'}</span>
+                            </div>
+                            <div>
+                                <h3 class="fancy-card-title">Liderazgo y Gestión de Equipos</h3>
+                                <p class="fancy-card-subtitle">Desarrollo de Habilidades Directivas</p>
+                            </div>
+                        </div>
+                        <div class="fancy-card-body">
+                            <p class="fancy-card-desc">Desarrolla competencias para guiar equipos, resolver conflictos y gestionar talento.</p>
+                            <div class="fancy-card-meta">
+                                <span><i data-lucide="book-open"></i> 4 Módulos</span>
+                                <span><i data-lucide="clock"></i> 60 min</span>
+                            </div>
+                            <div class="fancy-card-footer">
+                                <span class="status-pill ${enrolled.includes('liderazgo') ? 'status-enrolled' : 'status-available'}">${enrolled.includes('liderazgo') ? '✓ Inscrito' : '+ Disponible'}</span>
+                                <span class="fancy-card-action" style="color:#312e81;">Ver temario <i data-lucide="arrow-right"></i></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
